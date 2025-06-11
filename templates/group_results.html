@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChurnIQ | Group Prediction Results</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+      .primary-color { color: #F25835; }
+      .secondary-color { color: #027333; }
+      .primary-bg { background-color: #F25835; }
+      .secondary-bg { background-color: #027333; }
+      .light-neutral-bg { background-color: #F4F4F4; }
+      .dark-neutral { color: #333333; }
+      .btn-primary {
+        background-color: #F25835;
+        color: white;
+        transition: all .3s;
+      }
+      .btn-primary:hover { background-color: #cc482c; }
+      .threshold-info { color: #333333; }
+    </style>
+  </head>
+  <body class="bg-gray-100">
+    <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="flex items-center mb-6">
+        <h1 class="text-2xl font-bold primary-color mr-4">Customer Group Analysis Results</h1>
+        <a href="/" class="btn-primary px-4 py-2 rounded hover:bg-orange-700">
+          New Prediction
+        </a>
+      </div>
+      
+      <!-- Summary -->
+      <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+        <h2 class="text-xl font-semibold mb-4">Customer Analysis Summary</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="text-center p-4 bg-blue-50 rounded">
+            <div class="text-2xl font-bold text-blue-600">{{ total_customers }}</div>
+            <div class="text-sm text-gray-600">Total Customers</div>
+          </div>
+          <div class="text-center p-4 bg-red-50 rounded">
+            <div class="text-2xl font-bold text-red-600">{{ total_churn }}</div>
+            <div class="text-sm text-gray-600">Will Churn</div>
+          </div>
+          <div class="text-center p-4 bg-green-50 rounded">
+            <div class="text-2xl font-bold text-green-600">{{ total_customers - total_churn }}</div>
+            <div class="text-sm text-gray-600">Will Retain</div>
+          </div>
+        </div>
+        <div class="mt-4 text-center">
+          <div class="text-lg font-semibold">
+            Churn Rate: 
+            <span class="{% if (total_churn / total_customers * 100) > 30 %}text-red-600{% elif (total_churn / total_customers * 100) > 15 %}text-yellow-600{% else %}text-green-600{% endif %}">
+              {{ "%.1f"|format(total_churn / total_customers * 100) }}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Individual Results -->
+      <div class="space-y-4">
+        {% for result in results %}
+        <div class="bg-white shadow-md rounded-lg p-6 {% if result.willChurn %}border-l-4 border-red-500{% else %}border-l-4 border-green-500{% endif %}">
+          <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+            <div class="mb-4 lg:mb-0">
+              <h3 class="text-lg font-semibold text-gray-800">{{ result.customerId }}</h3>
+              <div class="flex items-center mt-1">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {% if result.willChurn %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                  {{ result.randomForestPrediction }}
+                </span>
+                <span class="ml-2 text-sm text-gray-600">
+                  Risk Score: {{ "%.2f"|format(result.regressionPrediction) }}
+                </span>
+              </div>
+            </div>
+            
+            <div class="lg:text-right">
+              <button onclick="toggleRecommendations('{{ result.customerId }}')" class="btn-primary px-4 py-2 rounded text-sm">
+                View Recommendations
+              </button>
+            </div>
+          </div>
+          
+          <!-- Recommendations (Hidden by default) -->
+          <div id="recommendations-{{ result.customerId }}" class="hidden mt-4 pt-4 border-t border-gray-200">
+            <h4 class="font-semibold text-gray-700 mb-2">Recommendations:</h4>
+            <ul class="list-disc list-inside space-y-1">
+              {% for recommendation in result.recommendations %}
+              <li class="text-sm text-gray-600">{{ recommendation }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      
+      {% if not results %}
+      <div class="bg-white shadow-md rounded-lg p-6 text-center">
+        <div class="text-gray-500">No results to display</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <script>
+      function toggleRecommendations(customerId) {
+        const element = document.getElementById('recommendations-' + customerId);
+        const button = event.target;
+        
+        if (element.classList.contains('hidden')) {
+          element.classList.remove('hidden');
+          button.textContent = 'Hide Recommendations';
+        } else {
+          element.classList.add('hidden');
+          button.textContent = 'View Recommendations';
+        }
+      }
+    </script>
+  </body>
+</html>

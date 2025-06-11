@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>ChurnIQ | Prediction Result</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+      .primary-color { color: #F25835; }
+      .secondary-color { color: #027333; }
+      .primary-bg { background-color: #F25835; }
+      .secondary-bg { background-color: #027333; }
+      .light-neutral-bg { background-color: #F4F4F4; }
+      .dark-neutral { color: #333333; }
+    </style>
+  </head>
+  <body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-10">
+      <h1 class="text-2xl md:text-3xl font-bold text-center mb-6 primary-color">Customer Churn Prediction Results</h1>
+      <div class="bg-white shadow-md rounded px-4 md:px-8 pt-6 pb-8 mb-4 text-center">
+        <h2 class="text-xl m-4 font-semibold secondary-color">Churn Risk Score</h2>
+        <p class="text-lg font-medium text-green-500">{{ "%.2f"|format(lin_reg_prediction) }}</p>
+        <h2 class="text-xl m-4 font-semibold secondary-color">Churn Prediction</h2>
+        <p class="text-lg font-medium {% if 'will Churn' in rf_prediction %}text-red-500{% else %}text-green-500{% endif %}">{{ rf_prediction }}</p>
+        <h2 class="text-xl m-4 font-semibold secondary-color">Retention Recommendations</h2>
+        {% for recommendation in recommendations %}
+          <p class="text-lg font-medium dark-neutral">{{ recommendation }}</p>
+        {% endfor %}
+        <h2 class="text-xl m-4 font-semibold secondary-color">Estimated Customer Lifetime Value</h2>
+        <p class="text-lg font-medium text-blue-500">${{ "%.2f"|format(clv) }}</p>
+        <a href="/" class="inline-block primary-bg hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mt-4">Make Another Prediction</a>
+      </div>
+    </div>
+  </body>
+</html>
