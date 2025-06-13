@@ -4,3 +4,5 @@ scikit-learn
 joblib
 pandas
 gunicorn
+google-genai
+python-dotenv
