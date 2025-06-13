@@ -180,8 +180,6 @@ Thumbs.db
 uploaded_files/
 temp_uploads/
 *.csv
-*.xlsx
-*.xls
 
 # Machine Learning models (uncomment if you don't want to track them)
 # *.joblib

@@ -1,4 +1,5 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import numpy as np
 import pandas as pd
 from joblib import load
@@ -12,6 +13,7 @@ import json
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Determine the base directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -250,132 +252,279 @@ def generate_personalized_retention_strategy(customer_data, churn_prediction):
 
 @app.route('/')
 def home():
-    return render_template('index.html')
+    """
+    API Info endpoint
+    """
+    return jsonify({
+        'name': 'ChurnIQ API',
+        'version': '1.0.0',
+        'description': 'Customer churn prediction REST API',
+        'endpoints': {
+            '/': 'API information',
+            '/predict': 'POST - Single customer churn prediction',
+            '/predict_group': 'POST - Multiple customers churn prediction',
+            '/get_retention_strategy': 'POST - Get personalized retention strategy'
+        }
+    })
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    # Extracting and converting form data
-    average_spend = float(request.form['AverageSpendPerVisitKsh'])
-    profit = float(request.form['Profit'])
-    frequency_of_purchases = float(request.form['FrequencyOfPurchases'])
-    average_time_btn_visits = float(request.form['average_time_btn_visits'])
-    time_since_last_visit = float(request.form['time_since_last_visit'])
-
-    # Calculate Customer Lifetime Value (Assuming a lifespan of 3 years)
-    customer_lifespan = float(request.form['customer_lifetime'])  # years
-    clv = average_spend * frequency_of_purchases * customer_lifespan
-
-    # Prepare features for model prediction and predict
-    features = np.array([average_spend, profit, frequency_of_purchases, average_time_btn_visits, time_since_last_visit]).reshape(1, -1)
-    features_scaled = scaler.transform(features)
-
-    # Make predictions
-    lin_reg_prediction = model.predict(features_scaled)[0]
-    rf_prediction = rf_model.predict(features_scaled)[0]
-
-    if rf_prediction == 1:
-        randomForestPrediction = 'Customer will Churn'
-    else:
-        randomForestPrediction = 'Customer will not Churn'
-
-    visitor_row = {
-        'AverageSpendPerVisitKsh': average_spend,
-        'Profit': profit,
-        'FrequencyOfPurchases': frequency_of_purchases,
-        'average_time_btn_visits': average_time_btn_visits,
-        'time_since_last_visit': time_since_last_visit
+    """
+    Single customer churn prediction
+    Expected JSON payload:
+    {
+        "AverageSpendPerVisitKsh": float,
+        "Profit": float,
+        "FrequencyOfPurchases": float,
+        "average_time_btn_visits": float,
+        "time_since_last_visit": float,
+        "customer_lifetime": float
     }
+    """
+    try:
+        # Get JSON data from request
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No JSON data provided'
+            }), 400
+        
+        # Validate required fields
+        required_fields = ['AverageSpendPerVisitKsh', 'Profit', 'FrequencyOfPurchases', 
+                          'average_time_btn_visits', 'time_since_last_visit', 'customer_lifetime']
+        
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required fields: {missing_fields}'
+            }), 400
+        
+        # Extract and convert data
+        average_spend = float(data['AverageSpendPerVisitKsh'])
+        profit = float(data['Profit'])
+        frequency_of_purchases = float(data['FrequencyOfPurchases'])
+        average_time_btn_visits = float(data['average_time_btn_visits'])
+        time_since_last_visit = float(data['time_since_last_visit'])
+        customer_lifespan = float(data['customer_lifetime'])
 
-    recommendations = generate_recommendation(visitor_row, rf_prediction)
+        # Calculate Customer Lifetime Value
+        clv = average_spend * frequency_of_purchases * customer_lifespan
 
-    # Generate smart insights for the individual customer
-    smart_insights = generate_smart_insights(visitor_row, rf_prediction, recommendations)
+        # Prepare features for model prediction
+        features = np.array([average_spend, profit, frequency_of_purchases, average_time_btn_visits, time_since_last_visit]).reshape(1, -1)
+        
+        # Create feature names to match what the scaler expects
+        feature_names = ['AverageSpendPerVisitKsh', 'Profit', 'FrequencyOfPurchases', 'average_time_btn_visits', 'time_since_last_visit']
+        features_df = pd.DataFrame(features, columns=feature_names)
+        features_scaled = scaler.transform(features_df)
 
-    return render_template('result.html', lin_reg_prediction=lin_reg_prediction, rf_prediction=randomForestPrediction, recommendations=recommendations, clv=clv, smart_insights=smart_insights)
+        # Make predictions
+        lin_reg_prediction = model.predict(features_scaled)[0]
+        rf_prediction = rf_model.predict(features_scaled)[0]
+
+        will_churn = bool(rf_prediction == 1)
+        rf_prediction_text = 'Customer will Churn' if will_churn else 'Customer will not Churn'
+
+        visitor_row = {
+            'AverageSpendPerVisitKsh': average_spend,
+            'Profit': profit,
+            'FrequencyOfPurchases': frequency_of_purchases,
+            'average_time_btn_visits': average_time_btn_visits,
+            'time_since_last_visit': time_since_last_visit
+        }
+
+        recommendations = generate_recommendation(visitor_row, rf_prediction)
+        smart_insights = generate_smart_insights(visitor_row, rf_prediction, recommendations)
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'churn_risk_score': float(lin_reg_prediction),
+                'churn_prediction': rf_prediction_text,
+                'will_churn': will_churn,
+                'customer_lifetime_value': float(clv),
+                'recommendations': recommendations,
+                'smart_insights': smart_insights,
+                'customer_data': visitor_row
+            }
+        })
+        
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'error': f'Invalid data format: {str(e)}'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Prediction failed: {str(e)}'
+        }), 500
 
 @app.route('/predict_group', methods=['POST'])
 def predict_group():
-    from io import StringIO
-    
-    # Get CSV data from form
-    csv_data = request.form['csv_data']
-    
-    # Parse CSV data
+    """
+    Group customer churn prediction
+    Expected JSON payload:
+    {
+        "customers": [
+            {
+                "VisitorID": string,
+                "FrequencyOfPurchases": float,
+                "AverageSpendPerVisitKsh": float,
+                "Profit": float,
+                "average_time_btn_visits": float,
+                "time_since_last_visit": float
+            }
+        ]
+    }
+    OR
+    {
+        "csv_data": "CSV string format"
+    }
+    """
     try:
-        df = pd.read_csv(StringIO(csv_data))
+        from io import StringIO
+        
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No JSON data provided'
+            }), 400
+        
+        df = None
+        
+        # Handle CSV data format
+        if 'csv_data' in data:
+            try:
+                df = pd.read_csv(StringIO(data['csv_data']))
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid CSV format: {str(e)}'
+                }), 400
+        
+        # Handle JSON array format
+        elif 'customers' in data:
+            try:
+                df = pd.DataFrame(data['customers'])
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid customers data format: {str(e)}'
+                }), 400
+        
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Either "csv_data" or "customers" field is required'
+            }), 400
         
         # Validate required columns
-        required_columns = ['VisitorID', 'FrequencyOfPurchases', 'AverageSpendPerVisitKsh', 'Profit', 'average_time_btn_visits', 'time_since_last_visit']
-        if not all(col in df.columns for col in required_columns):
-            return render_template('result.html', error="Missing required columns. Please ensure your CSV has: VisitorID, FrequencyOfPurchases, AverageSpendPerVisitKsh, Profit, average_time_btn_visits, time_since_last_visit")
+        required_columns = ['VisitorID', 'FrequencyOfPurchases', 'AverageSpendPerVisitKsh', 
+                           'Profit', 'average_time_btn_visits', 'time_since_last_visit']
+        
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required columns: {missing_columns}'
+            }), 400
         
         results = []
         total_churn = 0
         
         # Process each row
         for index, row in df.iterrows():
-            customer_id = row['VisitorID']
-            frequency_of_purchases = row['FrequencyOfPurchases']
-            average_spend = row['AverageSpendPerVisitKsh']
-            profit = row['Profit']
-            average_time_btn_visits = row['average_time_btn_visits']
-            time_since_last_visit = row['time_since_last_visit']
-            
-            # Prepare features for model prediction
-            features = np.array([average_spend, profit, frequency_of_purchases, average_time_btn_visits, time_since_last_visit]).reshape(1, -1)
-            features_scaled = scaler.transform(features)
-            
-            # Make predictions
-            lin_reg_prediction = model.predict(features_scaled)[0]
-            rf_prediction = rf_model.predict(features_scaled)[0]
-            
-            will_churn = rf_prediction == 1
-            if will_churn:
-                total_churn += 1
-                rf_prediction_text = 'Customer will Churn'
-            else:
-                rf_prediction_text = 'Customer will not Churn'
-            
-            visitor_row = {
-                'AverageSpendPerVisitKsh': average_spend,
-                'Profit': profit,
-                'FrequencyOfPurchases': frequency_of_purchases,
-                'average_time_btn_visits': average_time_btn_visits,
-                'time_since_last_visit': time_since_last_visit
-            }
-            
-            recommendations = generate_recommendation(visitor_row, rf_prediction)
-            
-            # Generate smart insights for the customer
-            smart_insights = generate_smart_insights(visitor_row, rf_prediction, recommendations)
-            
-            result = {
-                'customerId': customer_id,
-                'regressionPrediction': lin_reg_prediction,
-                'randomForestPrediction': rf_prediction_text,
-                'recommendations': recommendations,
-                'willChurn': will_churn,
-                'smartInsights': smart_insights,
-                'AverageSpendPerVisitKsh': average_spend,
-                'FrequencyOfPurchases': frequency_of_purchases
-            }
-            results.append(result)
+            try:
+                customer_id = row['VisitorID']
+                frequency_of_purchases = float(row['FrequencyOfPurchases'])
+                average_spend = float(row['AverageSpendPerVisitKsh'])
+                profit = float(row['Profit'])
+                average_time_btn_visits = float(row['average_time_btn_visits'])
+                time_since_last_visit = float(row['time_since_last_visit'])
+                
+                # Prepare features for model prediction
+                features = np.array([average_spend, profit, frequency_of_purchases, average_time_btn_visits, time_since_last_visit]).reshape(1, -1)
+                
+                # Create feature names to match what the scaler expects
+                feature_names = ['AverageSpendPerVisitKsh', 'Profit', 'FrequencyOfPurchases', 'average_time_btn_visits', 'time_since_last_visit']
+                features_df = pd.DataFrame(features, columns=feature_names)
+                features_scaled = scaler.transform(features_df)
+                
+                # Make predictions
+                lin_reg_prediction = model.predict(features_scaled)[0]
+                rf_prediction = rf_model.predict(features_scaled)[0]
+                
+                will_churn = bool(rf_prediction == 1)
+                if will_churn:
+                    total_churn += 1
+                    rf_prediction_text = 'Customer will Churn'
+                else:
+                    rf_prediction_text = 'Customer will not Churn'
+                
+                visitor_row = {
+                    'AverageSpendPerVisitKsh': average_spend,
+                    'Profit': profit,
+                    'FrequencyOfPurchases': frequency_of_purchases,
+                    'average_time_btn_visits': average_time_btn_visits,
+                    'time_since_last_visit': time_since_last_visit
+                }
+                
+                recommendations = generate_recommendation(visitor_row, rf_prediction)
+                smart_insights = generate_smart_insights(visitor_row, rf_prediction, recommendations)
+                
+                result = {
+                    'customer_id': customer_id,
+                    'churn_risk_score': float(lin_reg_prediction),
+                    'churn_prediction': rf_prediction_text,
+                    'will_churn': will_churn,
+                    'recommendations': recommendations,
+                    'smart_insights': smart_insights,
+                    'customer_data': visitor_row
+                }
+                results.append(result)
+                
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Error processing customer {row.get("VisitorID", index)}: {str(e)}'
+                }), 400
         
         # Generate group insights using Gemini AI
         group_insights = generate_group_insights(results, total_churn, len(results))
-        
-        # Generate business trends analysis
         trends_analysis = generate_business_trends_analysis(results)
         
-        return render_template('group_results.html', 
-                             results=results, 
-                             total_churn=total_churn, 
-                             total_customers=len(results), 
-                             group_insights=group_insights,
-                             trends_analysis=trends_analysis)
+        # Calculate summary statistics
+        churn_rate = (total_churn / len(results)) * 100 if len(results) > 0 else 0
+        high_risk_customers = [r for r in results if r['will_churn']]
+        total_revenue_at_risk = sum(r['customer_data']['AverageSpendPerVisitKsh'] for r in high_risk_customers)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'summary': {
+                    'total_customers': len(results),
+                    'total_churn': total_churn,
+                    'total_retain': len(results) - total_churn,
+                    'churn_rate': round(churn_rate, 2),
+                    'total_revenue_at_risk': round(total_revenue_at_risk, 2)
+                },
+                'customers': results,
+                'group_insights': group_insights,
+                'trends_analysis': trends_analysis
+            }
+        })
         
     except Exception as e:
-        return render_template('result.html', error=f"Error processing CSV data: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Group prediction failed: {str(e)}'
+        }), 500
 
 @app.route('/get_retention_strategy', methods=['POST'])
 def get_retention_strategy():
