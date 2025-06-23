@@ -9,26 +9,21 @@ from google import genai
 from google.genai import types
 import json
 
-# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
-# Determine the base directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Construct paths to the model and scaler files
 model_path = os.path.join(BASE_DIR, 'churn-prediction-multiple-features.joblib')
 scaler_path = os.path.join(BASE_DIR, 'scaler-multiple-features.joblib')
 rf_model_path = os.path.join(BASE_DIR, 'rf_model.joblib')
 
-# Load the saved models and scalers
 model = load(model_path)
 scaler = load(scaler_path)
 rf_model = load(rf_model_path)
 
-# Initialize Gemini client
 try:
     client = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
 except Exception as e:
@@ -58,11 +53,11 @@ def generate_recommendation(row, churn_prediction):
     if row['AverageSpendPerVisitKsh'] < spend_threshold:
         recommendations.append(f"Introduce promotions to increase basket size per visit. (Current average spend: ${row['AverageSpendPerVisitKsh']})")
     
-    if churn_prediction == 1:  # 1 indicates churn
-        if not recommendations:  # If list is empty
+    if churn_prediction == 1:
+        if not recommendations:
             recommendations.append("Engage with targeted offers and discounts.")
     else:
-        if not recommendations:  # If no issues found
+        if not recommendations:
             recommendations.append("Maintain current customer service excellence.")
 
     return recommendations
@@ -75,12 +70,10 @@ def generate_smart_insights(customer_data, churn_prediction, recommendations):
         return ["Smart insights unavailable - Gemini API not configured"]
     
     try:
-        # Calculate additional metrics for better insights
         visit_frequency = 365 / customer_data['average_time_btn_visits'] if customer_data['average_time_btn_visits'] > 0 else 0
         revenue_per_transaction = customer_data['AverageSpendPerVisitKsh']
         profit_margin = (customer_data['Profit'] / customer_data['AverageSpendPerVisitKsh'] * 100) if customer_data['AverageSpendPerVisitKsh'] > 0 else 0
         
-        # Prepare the enhanced prompt for Gemini
         prompt = f"""
         Analyze this customer and provide brief, actionable insights. No markdown formatting.
         
@@ -96,10 +89,10 @@ def generate_smart_insights(customer_data, churn_prediction, recommendations):
         """
         
         response = client.models.generate_content(
-            model='gemini-2.0-flash-001',
+            model='gemini-2.5-pro',
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.3,  # Lower temperature for more consistent insights
+                temperature=0.3,
                 max_output_tokens=150,
                 top_p=0.8,
                 top_k=40
@@ -120,15 +113,12 @@ def generate_group_insights(group_results, total_churn, total_customers):
         return "Group insights unavailable - Gemini API not configured"
     
     try:
-        # Calculate advanced metrics
         churn_rate = (total_churn / total_customers) * 100
         high_risk_customers = [r for r in group_results if r['willChurn']]
         
-        # Calculate aggregate statistics
         avg_spend = sum(r.get('AverageSpendPerVisitKsh', 0) for r in group_results if 'AverageSpendPerVisitKsh' in str(r)) / total_customers
         total_revenue_at_risk = sum(r.get('AverageSpendPerVisitKsh', 0) for r in high_risk_customers)
         
-        # Sample customer data for pattern analysis
         sample_data = group_results[:8] if len(group_results) > 8 else group_results
         
         prompt = f"""
@@ -145,7 +135,7 @@ def generate_group_insights(group_results, total_churn, total_customers):
         """
         
         response = client.models.generate_content(
-            model='gemini-2.0-flash-001',
+            model='gemini-2.5-pro',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.3,
@@ -169,7 +159,6 @@ def generate_business_trends_analysis(group_results):
         return "Trends analysis unavailable"
     
     try:
-        # Calculate trend metrics
         high_risk_count = sum(1 for r in group_results if r['willChurn'])
         avg_frequency = np.mean([r.get('FrequencyOfPurchases', 0) for r in group_results])
         avg_spend = np.mean([r.get('AverageSpendPerVisitKsh', 0) for r in group_results])
@@ -188,7 +177,7 @@ def generate_business_trends_analysis(group_results):
         """
         
         response = client.models.generate_content(
-            model='gemini-2.0-flash-001',
+            model='gemini-2.5-pro',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.4,
@@ -208,7 +197,7 @@ def generate_personalized_retention_strategy(customer_data, churn_prediction):
     Generate personalized retention strategy using Gemini AI
     """
     if not client:
-        return "Personalized strategy unavailable - Gemini API not configured"
+        raise Exception("Personalized strategy unavailable - Gemini API not configured")
     
     try:
         # Determine customer segment
@@ -234,27 +223,99 @@ def generate_personalized_retention_strategy(customer_data, churn_prediction):
         Under 120 words, plain text only.
         """
         
-        response = client.models.generate_content(
-            model='gemini-2.0-flash-001',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.4,
-                max_output_tokens=100,
-                top_p=0.85
-            )
-        )
+        import time
+        max_retries = 3
+        retry_delay = 1
         
-        return response.text
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.5-pro',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.4,
+                        max_output_tokens=100,
+                        top_p=0.85
+                    )
+                )
+                return response.text
+                
+            except Exception as api_error:
+                error_str = str(api_error)
+                if "503" in error_str or "overloaded" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        print(f"API overloaded, retrying in {retry_delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    else:
+                        return generate_fallback_retention_strategy(customer_data, churn_prediction)
+                else:
+                    raise api_error
         
     except Exception as e:
         print(f"Error generating retention strategy: {e}")
-        return f"Retention strategy unavailable: {str(e)}"
+        raise Exception(f"Error generating retention strategy: {str(e)}")
+
+def generate_fallback_retention_strategy(customer_data, churn_prediction):
+    """Generate a simple rule-based retention strategy when AI is unavailable"""
+    spend_per_visit = customer_data['AverageSpendPerVisitKsh']
+    frequency = customer_data['FrequencyOfPurchases']
+    days_since_visit = customer_data['time_since_last_visit']
+    
+    if spend_per_visit > 100 and frequency > 10:
+        customer_type = "High-Value"
+    elif frequency > 15:
+        customer_type = "Frequent"
+    elif frequency > 5:
+        customer_type = "Occasional"
+    else:
+        customer_type = "Infrequent"
+    
+    risk_level = "HIGH" if churn_prediction == 1 else "LOW"
+    
+    if customer_type == "High-Value":
+        if risk_level == "HIGH":
+            return """Week 1-2: Personal call from account manager with exclusive VIP discount offer
+Week 3-4: Invite to private customer appreciation event or early access to new products
+Success metric: Track engagement with exclusive offers and event attendance"""
+        else:
+            return """Week 1-2: Send personalized thank you message with loyalty points bonus
+Week 3-4: Offer premium service upgrade or exclusive product recommendations
+Success metric: Monitor loyalty points redemption and service upgrade adoption"""
+    
+    elif customer_type == "Frequent":
+        if risk_level == "HIGH":
+            return """Week 1-2: Send targeted discount on frequently purchased items
+Week 3-4: Create personalized subscription or auto-delivery option
+Success metric: Track purchase frequency and subscription sign-ups"""
+        else:
+            return """Week 1-2: Recommend complementary products based on purchase history
+Week 3-4: Invite to customer feedback program with rewards
+Success metric: Monitor cross-selling success and feedback participation"""
+    
+    elif customer_type == "Occasional":
+        if risk_level == "HIGH":
+            return """Week 1-2: Send re-engagement email with limited-time discount
+Week 3-4: Follow up with product education content and tutorials
+Success metric: Track email open rates and website engagement"""
+        else:
+            return """Week 1-2: Share relevant content and tips related to past purchases
+Week 3-4: Offer gentle reminder about abandoned cart or wishlist items
+Success metric: Monitor content engagement and conversion rates"""
+    
+    else:
+        if risk_level == "HIGH":
+            return """Week 1-2: Send welcome-back offer with significant discount
+Week 3-4: Provide simple onboarding sequence to increase engagement
+Success metric: Track offer redemption and onboarding completion"""
+        else:
+            return """Week 1-2: Send educational content about product benefits
+Week 3-4: Offer free trial or sample of popular products
+Success metric: Monitor content engagement and trial conversions"""
 
 @app.route('/')
 def home():
-    """
-    API Info endpoint
-    """
     return jsonify({
         'name': 'ChurnIQ API',
         'version': '1.0.0',
@@ -269,20 +330,8 @@ def home():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """
-    Single customer churn prediction
-    Expected JSON payload:
-    {
-        "AverageSpendPerVisitKsh": float,
-        "Profit": float,
-        "FrequencyOfPurchases": float,
-        "average_time_btn_visits": float,
-        "time_since_last_visit": float,
-        "customer_lifetime": float
-    }
-    """
+    """Single customer churn prediction with expected JSON payload fields"""
     try:
-        # Get JSON data from request
         data = request.get_json()
         
         if not data:
@@ -291,7 +340,6 @@ def predict():
                 'error': 'No JSON data provided'
             }), 400
         
-        # Validate required fields
         required_fields = ['AverageSpendPerVisitKsh', 'Profit', 'FrequencyOfPurchases', 
                           'average_time_btn_visits', 'time_since_last_visit', 'customer_lifetime']
         
@@ -302,7 +350,6 @@ def predict():
                 'error': f'Missing required fields: {missing_fields}'
             }), 400
         
-        # Extract and convert data
         average_spend = float(data['AverageSpendPerVisitKsh'])
         profit = float(data['Profit'])
         frequency_of_purchases = float(data['FrequencyOfPurchases'])
@@ -310,18 +357,14 @@ def predict():
         time_since_last_visit = float(data['time_since_last_visit'])
         customer_lifespan = float(data['customer_lifetime'])
 
-        # Calculate Customer Lifetime Value
         clv = average_spend * frequency_of_purchases * customer_lifespan
 
-        # Prepare features for model prediction
         features = np.array([average_spend, profit, frequency_of_purchases, average_time_btn_visits, time_since_last_visit]).reshape(1, -1)
         
-        # Create feature names to match what the scaler expects
         feature_names = ['AverageSpendPerVisitKsh', 'Profit', 'FrequencyOfPurchases', 'average_time_btn_visits', 'time_since_last_visit']
         features_df = pd.DataFrame(features, columns=feature_names)
         features_scaled = scaler.transform(features_df)
 
-        # Make predictions
         lin_reg_prediction = model.predict(features_scaled)[0]
         rf_prediction = rf_model.predict(features_scaled)[0]
 
@@ -365,26 +408,7 @@ def predict():
 
 @app.route('/predict_group', methods=['POST'])
 def predict_group():
-    """
-    Group customer churn prediction
-    Expected JSON payload:
-    {
-        "customers": [
-            {
-                "VisitorID": string,
-                "FrequencyOfPurchases": float,
-                "AverageSpendPerVisitKsh": float,
-                "Profit": float,
-                "average_time_btn_visits": float,
-                "time_since_last_visit": float
-            }
-        ]
-    }
-    OR
-    {
-        "csv_data": "CSV string format"
-    }
-    """
+    """Group customer churn prediction - accepts customers array or csv_data"""
     try:
         from io import StringIO
         
@@ -398,7 +422,6 @@ def predict_group():
         
         df = None
         
-        # Handle CSV data format
         if 'csv_data' in data:
             try:
                 df = pd.read_csv(StringIO(data['csv_data']))
@@ -408,7 +431,6 @@ def predict_group():
                     'error': f'Invalid CSV format: {str(e)}'
                 }), 400
         
-        # Handle JSON array format
         elif 'customers' in data:
             try:
                 df = pd.DataFrame(data['customers'])
@@ -424,7 +446,6 @@ def predict_group():
                 'error': 'Either "csv_data" or "customers" field is required'
             }), 400
         
-        # Validate required columns
         required_columns = ['VisitorID', 'FrequencyOfPurchases', 'AverageSpendPerVisitKsh', 
                            'Profit', 'average_time_btn_visits', 'time_since_last_visit']
         
@@ -438,7 +459,6 @@ def predict_group():
         results = []
         total_churn = 0
         
-        # Process each row
         for index, row in df.iterrows():
             try:
                 customer_id = row['VisitorID']
@@ -448,15 +468,12 @@ def predict_group():
                 average_time_btn_visits = float(row['average_time_btn_visits'])
                 time_since_last_visit = float(row['time_since_last_visit'])
                 
-                # Prepare features for model prediction
                 features = np.array([average_spend, profit, frequency_of_purchases, average_time_btn_visits, time_since_last_visit]).reshape(1, -1)
                 
-                # Create feature names to match what the scaler expects
                 feature_names = ['AverageSpendPerVisitKsh', 'Profit', 'FrequencyOfPurchases', 'average_time_btn_visits', 'time_since_last_visit']
                 features_df = pd.DataFrame(features, columns=feature_names)
                 features_scaled = scaler.transform(features_df)
                 
-                # Make predictions
                 lin_reg_prediction = model.predict(features_scaled)[0]
                 rf_prediction = rf_model.predict(features_scaled)[0]
                 
@@ -495,11 +512,9 @@ def predict_group():
                     'error': f'Error processing customer {row.get("VisitorID", index)}: {str(e)}'
                 }), 400
         
-        # Generate group insights using Gemini AI
         group_insights = generate_group_insights(results, total_churn, len(results))
         trends_analysis = generate_business_trends_analysis(results)
         
-        # Calculate summary statistics
         churn_rate = (total_churn / len(results)) * 100 if len(results) > 0 else 0
         high_risk_customers = [r for r in results if r['will_churn']]
         total_revenue_at_risk = sum(r['customer_data']['AverageSpendPerVisitKsh'] for r in high_risk_customers)
@@ -528,9 +543,7 @@ def predict_group():
 
 @app.route('/get_retention_strategy', methods=['POST'])
 def get_retention_strategy():
-    """
-    Generate personalized retention strategy for a specific customer
-    """
+    """Generate personalized retention strategy for a specific customer"""
     try:
         data = request.get_json()
         customer_data = {
@@ -549,10 +562,13 @@ def get_retention_strategy():
         })
         
     except Exception as e:
+        error_message = str(e)
+        status_code = 503 if '503' in error_message or 'overloaded' in error_message.lower() else 500
+        
         return jsonify({
             'success': False,
-            'error': str(e)
-        })
+            'error': error_message
+        }), status_code
 
 if __name__ == "__main__":
     app.run(debug=True)
