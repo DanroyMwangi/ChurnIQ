@@ -14,6 +14,40 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
+# Helper functions to get model configuration from environment
+def get_gemini_config():
+    return types.GenerateContentConfig(
+        temperature=float(os.getenv('GEMINI_TEMPERATURE', 0.3)),
+        max_output_tokens=int(os.getenv('GEMINI_MAX_OUTPUT_TOKENS', 150)),
+        top_p=float(os.getenv('GEMINI_TOP_P', 0.8)),
+        top_k=int(os.getenv('GEMINI_TOP_K', 40))
+    )
+
+def get_retention_config():
+    return types.GenerateContentConfig(
+        temperature=float(os.getenv('RETENTION_TEMPERATURE', 0.4)),
+        max_output_tokens=int(os.getenv('RETENTION_MAX_TOKENS', 100)),
+        top_p=float(os.getenv('RETENTION_TOP_P', 0.85))
+    )
+
+def get_group_insights_config():
+    return types.GenerateContentConfig(
+        temperature=float(os.getenv('GROUP_INSIGHTS_TEMPERATURE', 0.3)),
+        max_output_tokens=int(os.getenv('GROUP_INSIGHTS_MAX_TOKENS', 120)),
+        top_p=float(os.getenv('GROUP_INSIGHTS_TOP_P', 0.8)),
+        top_k=int(os.getenv('GROUP_INSIGHTS_TOP_K', 40))
+    )
+
+def get_trends_config():
+    return types.GenerateContentConfig(
+        temperature=float(os.getenv('TRENDS_TEMPERATURE', 0.4)),
+        max_output_tokens=int(os.getenv('TRENDS_MAX_TOKENS', 80)),
+        top_p=float(os.getenv('TRENDS_TOP_P', 0.9))
+    )
+
+def get_model_name():
+    return os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 model_path = os.path.join(BASE_DIR, 'churn-prediction-multiple-features.joblib')
@@ -89,14 +123,9 @@ def generate_smart_insights(customer_data, churn_prediction, recommendations):
         """
         
         response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model=get_model_name(),
             contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=150,
-                top_p=0.8,
-                top_k=40
-            )
+            config=get_gemini_config()
         )
         
         return [response.text]
@@ -135,14 +164,9 @@ def generate_group_insights(group_results, total_churn, total_customers):
         """
         
         response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model=get_model_name(),
             contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=120,
-                top_p=0.8,
-                top_k=40
-            )
+            config=get_group_insights_config()
         )
         
         return response.text
@@ -177,7 +201,7 @@ def generate_business_trends_analysis(group_results):
         """
         
         response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-2.0-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.4,
@@ -230,7 +254,7 @@ def generate_personalized_retention_strategy(customer_data, churn_prediction):
         for attempt in range(max_retries):
             try:
                 response = client.models.generate_content(
-                    model='gemini-2.5-pro',
+                    model='gemini-2.0-flash',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.4,
